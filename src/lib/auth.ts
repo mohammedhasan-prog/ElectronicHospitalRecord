@@ -63,9 +63,39 @@ async function fetchAccessToken(): Promise<Token> {
     'Authorization': `Basic ${authString}`,
   };
 
+  // Comprehensive SMART v1 System scopes for Oracle Health FHIR
+  const scopes = [
+    'system/Patient.read',
+    'system/Patient.write',
+    'system/Appointment.read',
+    'system/Appointment.write',
+    'system/Observation.read',
+    'system/Observation.write',
+    'system/AllergyIntolerance.read',
+    'system/AllergyIntolerance.write',
+    'system/Condition.read',
+    'system/Condition.write',
+    'system/Coverage.read',
+    'system/Claim.read',
+    'system/MedicationRequest.read',
+    'system/MedicationRequest.write',
+    'system/MedicationAdministration.read',
+    'system/Immunization.read',
+    'system/Immunization.write',
+    'system/Practitioner.read',
+    'system/Organization.read',
+    'system/Location.read',
+    'system/Encounter.read',
+    'system/Encounter.write',
+    'system/DiagnosticReport.read',
+    'system/DocumentReference.read',
+    'system/Procedure.read',
+    'system/Procedure.write'
+  ];
+
   const body = new URLSearchParams({
     grant_type: 'client_credentials',
-    scope: 'system/Patient.read system/Patient.write system/Appointment.read system/Appointment.write system/Observation.read system/Observation.write system/AllergyIntolerance.read system/AllergyIntolerance.write system/Condition.read system/Condition.write system/Coverage.read system/Claim.read',
+    scope: scopes.join(' '),
   });
 
   const response = await fetch(tokenUrl, {

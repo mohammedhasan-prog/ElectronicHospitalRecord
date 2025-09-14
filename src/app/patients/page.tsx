@@ -2,6 +2,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 interface Patient {
   id: string;
@@ -10,7 +11,8 @@ interface Patient {
   birthDate: string;
 }
 
-export default function PatientSearch() {
+export default function PatientsPage() {
+  const router = useRouter();
   const [searchTerm, setSearchTerm] = useState('');
   const [patients, setPatients] = useState<Patient[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -66,20 +68,29 @@ export default function PatientSearch() {
   };
 
   const handleViewPatient = (patientId: string) => {
-    // TODO: Navigate to patient detail view
-    alert(`View patient: ${patientId}`);
+    router.push(`/patients/${patientId}`);
   };
 
   const handleEditPatient = (patientId: string) => {
-    // TODO: Navigate to patient edit form
-    alert(`Edit patient: ${patientId}`);
+    router.push(`/patients/${patientId}/edit`);
   };
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-800">
       <div className="container mx-auto p-4 sm:p-6 lg:p-8">
         <div className="bg-white shadow-md rounded-lg p-6">
-          <h1 className="text-2xl font-bold mb-4 text-gray-900">Patient Search</h1>
+          <div className="flex justify-between items-center mb-4">
+            <h1 className="text-2xl font-bold text-gray-900">Patient Search</h1>
+            <button
+              onClick={() => router.push('/patients/new')}
+              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+            >
+              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              Create New Patient
+            </button>
+          </div>
           <form onSubmit={handleSearch} className="flex items-center mb-6">
             <input
               type="text"
