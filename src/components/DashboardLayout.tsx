@@ -16,13 +16,16 @@ import {
   HeartIcon,
   ClipboardDocumentListIcon,
   BeakerIcon,
-  ShieldCheckIcon
+  ShieldCheckIcon,
+  MapPinIcon,
+  BuildingOfficeIcon
 } from '@heroicons/react/24/outline';
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: HomeIcon },
   { name: 'Patients', href: '/patients', icon: UserGroupIcon },
-  { name: 'Organizations', href: '/organizations', icon: ClipboardDocumentListIcon },
+  { name: 'Organizations', href: '/organizations', icon: BuildingOfficeIcon },
+  { name: 'Locations', href: '/locations', icon: MapPinIcon },
   { name: 'Appointments', href: '/appointments', icon: CalendarIcon },
   { name: 'Clinical', href: '/clinical', icon: HeartIcon, children: [
     { name: 'Observations', href: '/clinical/observations' },
@@ -37,7 +40,7 @@ const navigation = [
   { name: 'Reports', href: '/reports', icon: ChartBarIcon },
   { name: 'Administration', href: '/admin', icon: ShieldCheckIcon, children: [
     { name: 'Practitioners', href: '/admin/practitioners' },
-    { name: 'Locations', href: '/admin/locations' },
+    { name: 'Settings', href: '/admin/settings' },
   ]},
   { name: 'Settings', href: '/settings', icon: CogIcon },
 ];
