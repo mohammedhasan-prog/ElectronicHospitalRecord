@@ -22,7 +22,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const fhirUrl = `${process.env.FHIR_BASE_URL}/Location/${locationId}`;
+    const fhirUrl = `${process.env.FHIR_ROOT_HOST}/${process.env.TENANT_ID}/Location/${locationId}`;
     console.log('🔗 FHIR URL:', fhirUrl);
 
     const response = await fetch(fhirUrl, {

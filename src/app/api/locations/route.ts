@@ -113,7 +113,7 @@ export async function GET(request: NextRequest) {
       fhirParams.append('_getpagesoffset', cursor);
     }
 
-    const fhirUrl = `${process.env.FHIR_BASE_URL}/Location?${fhirParams.toString()}`;
+    const fhirUrl = `${process.env.FHIR_ROOT_HOST}/${process.env.TENANT_ID}/Location?${fhirParams.toString()}`;
     console.log('🔗 FHIR URL:', fhirUrl);
 
     const response = await fetch(fhirUrl, {
