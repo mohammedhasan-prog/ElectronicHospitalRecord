@@ -7,6 +7,7 @@ export async function GET(request: NextRequest) {
     const accessToken = await getAccessToken();
     const { searchParams } = new URL(request.url);
     const name = searchParams.get('name');
+    const cursor = searchParams.get('cursor'); // For pagination
 
     const { TENANT_ID, FHIR_ROOT_HOST = 'https://fhir-ehr-code.cerner.com/r4' } = process.env;
 
@@ -14,13 +15,21 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ ok: false, message: 'Tenant ID is not configured.' }, { status: 500 });
     }
 
-    const url = new URL(`${FHIR_ROOT_HOST}/${TENANT_ID}/Patient`);
-    if (name) {
-      url.searchParams.append('name', name);
+    let url: string;
+    if (cursor) {
+      // Use the cursor (next page URL) directly
+      url = cursor;
+    } else {
+      // Build initial search URL
+      const baseUrl = new URL(`${FHIR_ROOT_HOST}/${TENANT_ID}/Patient`);
+      if (name) {
+        baseUrl.searchParams.append('name', name);
+      }
+      baseUrl.searchParams.append('_count', '10');
+      url = baseUrl.toString();
     }
-    url.searchParams.append('_count', '10');
 
-    const response = await fetch(url.toString(), {
+    const response = await fetch(url, {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Accept': 'application/fhir+json',
@@ -34,6 +43,10 @@ export async function GET(request: NextRequest) {
 
     const data = await response.json();
     
+    // Check for next page link
+    const nextLink = data.link?.find((link: any) => link.relation === 'next');
+    const nextCursor = nextLink?.url || null;
+    
     // Normalize the response for the frontend
     const patients = data.entry?.map((entry: any) => {
         const resource = entry.resource;
@@ -45,7 +58,12 @@ export async function GET(request: NextRequest) {
         };
     }) || [];
 
-    return NextResponse.json({ ok: true, patients });
+    return NextResponse.json({ 
+      ok: true, 
+      patients,
+      nextCursor,
+      total: data.total || null 
+    });
   } catch (error: any) {
     return NextResponse.json({ ok: false, message: error.message }, { status: 500 });
   }
