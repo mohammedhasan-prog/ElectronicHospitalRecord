@@ -8,6 +8,14 @@ interface Patient {
   id: string;
   name: string;
   display: string;
+  birthDate?: string;
+  gender?: string;
+  identifier?: Array<{
+    value: string;
+    type?: {
+      text?: string;
+    };
+  }>;
 }
 
 interface Location {
@@ -66,6 +74,13 @@ export default function CreateAppointment() {
   const [locations, setLocations] = useState<Location[]>([]);
   const [loadingPatients, setLoadingPatients] = useState(false);
   const [loadingLocations, setLoadingLocations] = useState(false);
+  
+  // Patient search state
+  const [patientSearchQuery, setPatientSearchQuery] = useState('');
+  const [patientSearchResults, setPatientSearchResults] = useState<Patient[]>([]);
+  const [showPatientDropdown, setShowPatientDropdown] = useState(false);
+  const [searchingPatients, setSearchingPatients] = useState(false);
+  const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
 
   const [formData, setFormData] = useState<FormData>({
     status: 'proposed',
@@ -133,6 +148,107 @@ export default function CreateAppointment() {
     }
   };
 
+  // Patient search function
+  const searchPatients = async (query: string) => {
+    if (!query.trim() || query.trim().length < 2) {
+      setPatientSearchResults([]);
+      setShowPatientDropdown(false);
+      return;
+    }
+
+    setSearchingPatients(true);
+    try {
+      // Search by name (family and given)
+      const nameResponse = await fetch(`/api/patients?name=${encodeURIComponent(query)}&_count=10`);
+      let searchResults: Patient[] = [];
+
+      if (nameResponse.ok) {
+        const nameData = await nameResponse.json();
+        if (nameData.entry) {
+          searchResults = nameData.entry.map((entry: any) => ({
+            id: entry.resource.id,
+            name: entry.resource.name?.[0] ? 
+              `${entry.resource.name[0].given?.join(' ') || ''} ${entry.resource.name[0].family || ''}`.trim() : 
+              'Unknown Patient',
+            display: entry.resource.name?.[0] ? 
+              `${entry.resource.name[0].given?.join(' ') || ''} ${entry.resource.name[0].family || ''}`.trim() : 
+              'Unknown Patient',
+            birthDate: entry.resource.birthDate,
+            gender: entry.resource.gender,
+            identifier: entry.resource.identifier
+          }));
+        }
+      }
+
+      // If no results by name, try searching by identifier (MRN)
+      if (searchResults.length === 0) {
+        const idResponse = await fetch(`/api/patients?identifier=${encodeURIComponent(query)}&_count=10`);
+        if (idResponse.ok) {
+          const idData = await idResponse.json();
+          if (idData.entry) {
+            searchResults = idData.entry.map((entry: any) => ({
+              id: entry.resource.id,
+              name: entry.resource.name?.[0] ? 
+                `${entry.resource.name[0].given?.join(' ') || ''} ${entry.resource.name[0].family || ''}`.trim() : 
+                'Unknown Patient',
+              display: entry.resource.name?.[0] ? 
+                `${entry.resource.name[0].given?.join(' ') || ''} ${entry.resource.name[0].family || ''}`.trim() : 
+                'Unknown Patient',
+              birthDate: entry.resource.birthDate,
+              gender: entry.resource.gender,
+              identifier: entry.resource.identifier
+            }));
+          }
+        }
+      }
+
+      setPatientSearchResults(searchResults);
+      setShowPatientDropdown(true);
+    } catch (error) {
+      console.error('Error searching patients:', error);
+      setPatientSearchResults([]);
+    } finally {
+      setSearchingPatients(false);
+    }
+  };
+
+  // Handle patient search input with debouncing
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      searchPatients(patientSearchQuery);
+    }, 300);
+
+    return () => clearTimeout(timeoutId);
+  }, [patientSearchQuery]);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Element;
+      if (!target.closest('.patient-search-container')) {
+        setShowPatientDropdown(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const selectPatient = (patient: Patient) => {
+    setSelectedPatient(patient);
+    setFormData(prev => ({ ...prev, patientId: patient.id }));
+    setPatientSearchQuery(patient.name);
+    setShowPatientDropdown(false);
+  };
+
+  const clearPatientSelection = () => {
+    setSelectedPatient(null);
+    setFormData(prev => ({ ...prev, patientId: '' }));
+    setPatientSearchQuery('');
+    setPatientSearchResults([]);
+    setShowPatientDropdown(false);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -165,8 +281,8 @@ export default function CreateAppointment() {
 
       // Add status-specific fields
       if (formData.status === 'proposed') {
+        // Structure serviceType to match the working Python script
         appointmentPayload.serviceType = [{
-          text: formData.serviceType.display,
           coding: [{
             system: formData.serviceType.system,
             code: formData.serviceType.code,
@@ -178,7 +294,7 @@ export default function CreateAppointment() {
           {
             actor: {
               reference: `Patient/${formData.patientId}`,
-              display: patients.find(p => p.id === formData.patientId)?.display
+              display: selectedPatient?.name || formData.patientId
             },
             status: 'needs-action'
           },
@@ -203,7 +319,7 @@ export default function CreateAppointment() {
         appointmentPayload.participant = [{
           actor: {
             reference: `Patient/${formData.patientId}`,
-            display: patients.find(p => p.id === formData.patientId)?.display
+            display: selectedPatient?.name || formData.patientId
           },
           status: 'accepted'
         }];
@@ -346,29 +462,89 @@ export default function CreateAppointment() {
             </div>
           </div>
 
-          {/* Patient Selection */}
-          <div>
+          {/* Patient Search */}
+          <div className="relative patient-search-container">
             <label htmlFor="patient" className="block text-sm font-medium text-gray-700 mb-2">
               <UserIcon className="inline h-4 w-4 mr-1" />
               Patient *
             </label>
-            <select
-              id="patient"
-              value={formData.patientId}
-              onChange={(e) => setFormData(prev => ({ ...prev, patientId: e.target.value }))}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
-              disabled={loadingPatients}
-            >
-              <option value="">
-                {loadingPatients ? 'Loading patients...' : 'Select a patient'}
-              </option>
-              {patients.map((patient) => (
-                <option key={patient.id} value={patient.id}>
-                  {patient.name}
-                </option>
-              ))}
-            </select>
+            
+            {selectedPatient ? (
+              <div className="bg-green-50 border border-green-200 rounded-md p-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-medium text-green-900">{selectedPatient.name}</p>
+                    <div className="text-sm text-green-700">
+                      {selectedPatient.birthDate && (
+                        <span className="mr-4">DOB: {selectedPatient.birthDate}</span>
+                      )}
+                      {selectedPatient.gender && (
+                        <span className="mr-4">Gender: {selectedPatient.gender}</span>
+                      )}
+                      {selectedPatient.identifier && selectedPatient.identifier[0] && (
+                        <span>MRN: {selectedPatient.identifier[0].value}</span>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={clearPatientSelection}
+                    className="text-red-600 hover:text-red-800"
+                  >
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <input
+                  type="text"
+                  id="patient"
+                  value={patientSearchQuery}
+                  onChange={(e) => setPatientSearchQuery(e.target.value)}
+                  placeholder="Search by patient name or MRN..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  autoComplete="off"
+                />
+                
+                {/* Search Results Dropdown */}
+                {showPatientDropdown && (
+                  <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                    {searchingPatients ? (
+                      <div className="px-3 py-2 text-gray-500">Searching...</div>
+                    ) : patientSearchResults.length > 0 ? (
+                      patientSearchResults.map((patient) => (
+                        <button
+                          key={patient.id}
+                          type="button"
+                          onClick={() => selectPatient(patient)}
+                          className="w-full text-left px-3 py-2 hover:bg-gray-100 border-b border-gray-100 last:border-b-0"
+                        >
+                          <div className="font-medium">{patient.name}</div>
+                          <div className="text-sm text-gray-600">
+                            {patient.birthDate && (
+                              <span className="mr-4">DOB: {patient.birthDate}</span>
+                            )}
+                            {patient.gender && (
+                              <span className="mr-4">Gender: {patient.gender}</span>
+                            )}
+                            {patient.identifier && patient.identifier[0] && (
+                              <span>MRN: {patient.identifier[0].value}</span>
+                            )}
+                          </div>
+                        </button>
+                      ))
+                    ) : patientSearchQuery.length >= 2 ? (
+                      <div className="px-3 py-2 text-gray-500">No patients found</div>
+                    ) : (
+                      <div className="px-3 py-2 text-gray-500">Type at least 2 characters to search</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Conditional fields based on status */}

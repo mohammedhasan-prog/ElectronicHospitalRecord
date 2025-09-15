@@ -18,12 +18,14 @@ import {
   BeakerIcon,
   ShieldCheckIcon,
   MapPinIcon,
-  BuildingOfficeIcon
+  BuildingOfficeIcon,
+  UserIcon
 } from '@heroicons/react/24/outline';
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: HomeIcon },
   { name: 'Patients', href: '/patients', icon: UserGroupIcon },
+  { name: 'Practitioners', href: '/practitioners', icon: UserIcon },
   { name: 'Organizations', href: '/organizations', icon: BuildingOfficeIcon },
   { name: 'Locations', href: '/locations', icon: MapPinIcon },
   { name: 'Appointments', href: '/appointments', icon: CalendarIcon },
@@ -39,7 +41,6 @@ const navigation = [
   { name: 'Billing', href: '/billing', icon: CreditCardIcon },
   { name: 'Reports', href: '/reports', icon: ChartBarIcon },
   { name: 'Administration', href: '/admin', icon: ShieldCheckIcon, children: [
-    { name: 'Practitioners', href: '/admin/practitioners' },
     { name: 'Settings', href: '/admin/settings' },
   ]},
   { name: 'Settings', href: '/settings', icon: CogIcon },

@@ -4,36 +4,21 @@ import { getAccessToken } from '../../../lib/auth';
 const FHIR_BASE_URL = process.env.FHIR_ROOT_HOST;
 const TENANT_ID = process.env.TENANT_ID;
 
-// Oracle Health FHIR Appointment interface
+// Oracle Health FHIR Appointment interface - based on working Python script
 interface AppointmentCreate {
   resourceType: 'Appointment';
   status: 'proposed' | 'booked';
-  serviceCategory?: {
-    text?: string;
-    coding?: Array<{
-      system?: string;
-      code?: string;
-    }>;
-  };
   serviceType?: Array<{
-    text?: string;
-    coding?: Array<{
-      system?: string;
-      code?: string;
-      display?: string;
-      userSelected?: boolean;
+    coding: Array<{
+      system: string;
+      code: string;
+      display: string;
     }>;
   }>;
   reasonCode?: Array<{
     text: string;
-    coding?: Array<{
-      system?: string;
-      code?: string;
-    }>;
   }>;
-  slot?: Array<{
-    reference: string;
-  }>;
+  comment?: string;
   participant: Array<{
     actor: {
       reference: string;
@@ -41,10 +26,12 @@ interface AppointmentCreate {
     };
     status: 'accepted' | 'needs-action';
   }>;
-  comment?: string;
   requestedPeriod?: Array<{
     start: string;
     end: string;
+  }>;
+  slot?: Array<{
+    reference: string;
   }>;
 }
 
@@ -149,110 +136,64 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate status-specific requirements
+    // Validate status-specific requirements based on working Python script
     if (body.status === 'proposed') {
-      // For proposed appointments
-      if (!body.serviceType || !Array.isArray(body.serviceType) || body.serviceType.length !== 1) {
+      // For proposed appointments, we need participant and requestedPeriod
+      if (!body.participant || !Array.isArray(body.participant) || body.participant.length === 0) {
         return NextResponse.json(
-          { error: 'serviceType is required for proposed appointments and must contain exactly one item' },
+          { error: 'participant is required for proposed appointments' },
           { status: 400 }
         );
       }
 
-      if (!body.requestedPeriod || !Array.isArray(body.requestedPeriod) || body.requestedPeriod.length !== 1) {
+      if (!body.requestedPeriod || !Array.isArray(body.requestedPeriod) || body.requestedPeriod.length === 0) {
         return NextResponse.json(
-          { error: 'requestedPeriod is required for proposed appointments and must contain exactly one period' },
+          { error: 'requestedPeriod is required for proposed appointments' },
           { status: 400 }
         );
       }
 
-      const period = body.requestedPeriod[0];
-      if (!period.start || !period.end) {
-        return NextResponse.json(
-          { error: 'requestedPeriod must have both start and end times' },
-          { status: 400 }
-        );
-      }
-
-      // Validate participants for proposed appointments
+      // Validate that we have at least one patient
       const hasPatient = body.participant.some((p: any) => 
-        p.actor?.reference?.startsWith('Patient/') && p.status === 'needs-action'
-      );
-      const hasLocation = body.participant.some((p: any) => 
-        p.actor?.reference?.startsWith('Location/') && p.status === 'needs-action'
+        p.actor?.reference?.startsWith('Patient/')
       );
 
       if (!hasPatient) {
         return NextResponse.json(
-          { error: 'proposed appointments must have at least one patient participant with status "needs-action"' },
-          { status: 400 }
-        );
-      }
-
-      if (!hasLocation) {
-        return NextResponse.json(
-          { error: 'proposed appointments must have at least one location participant with status "needs-action"' },
+          { error: 'proposed appointments must have at least one patient participant' },
           { status: 400 }
         );
       }
     } else if (body.status === 'booked') {
-      // For booked appointments
-      if (!body.slot || !Array.isArray(body.slot) || body.slot.length !== 1) {
+      // For booked appointments, we need slot and participant
+      if (!body.slot || !Array.isArray(body.slot) || body.slot.length === 0) {
         return NextResponse.json(
-          { error: 'slot is required for booked appointments and must contain exactly one slot reference' },
+          { error: 'slot is required for booked appointments' },
           { status: 400 }
         );
       }
 
-      if (!body.slot[0].reference) {
+      if (!body.participant || !Array.isArray(body.participant) || body.participant.length === 0) {
         return NextResponse.json(
-          { error: 'slot reference is required' },
+          { error: 'participant is required for booked appointments' },
           { status: 400 }
         );
       }
 
-      // Validate participants for booked appointments
-      if (body.participant.length !== 1) {
-        return NextResponse.json(
-          { error: 'booked appointments must have exactly one patient participant' },
-          { status: 400 }
-        );
-      }
+      // Validate that we have at least one patient
+      const hasPatient = body.participant.some((p: any) => 
+        p.actor?.reference?.startsWith('Patient/')
+      );
 
-      const participant = body.participant[0];
-      if (!participant.actor?.reference?.startsWith('Patient/')) {
+      if (!hasPatient) {
         return NextResponse.json(
-          { error: 'booked appointments must have a patient participant' },
-          { status: 400 }
-        );
-      }
-
-      if (participant.status !== 'accepted') {
-        return NextResponse.json(
-          { error: 'booked appointment participant status must be "accepted"' },
-          { status: 400 }
-        );
-      }
-
-      if (participant.type) {
-        return NextResponse.json(
-          { error: 'participant.type must not be set' },
+          { error: 'booked appointments must have at least one patient participant' },
           { status: 400 }
         );
       }
     }
 
-    // Validate reasonCode if provided
-    if (body.reasonCode) {
-      if (!Array.isArray(body.reasonCode) || body.reasonCode.length !== 1) {
-        return NextResponse.json(
-          { error: 'reasonCode must contain exactly one CodeableConcept' },
-          { status: 400 }
-        );
-      }
-    }
-
-    // Validate all participants
+    // Basic validation for all participants
     for (const participant of body.participant) {
       if (!participant.actor?.reference) {
         return NextResponse.json(
