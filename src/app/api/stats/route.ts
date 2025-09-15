@@ -56,6 +56,8 @@ export async function GET() {
       return NextResponse.json({ ok: false, message: 'Tenant ID is not configured.' }, { status: 500 });
     }
 
+    console.log('Fetching stats for tenant:', TENANT_ID);
+    
     const [patients, practitioners, organizations, appointments] = await Promise.all([
       fetchCount('Patient', FHIR_ROOT_HOST, TENANT_ID, accessToken),
       fetchCount('Practitioner', FHIR_ROOT_HOST, TENANT_ID, accessToken),
@@ -63,16 +65,25 @@ export async function GET() {
       fetchCount('Appointment', FHIR_ROOT_HOST, TENANT_ID, accessToken),
     ]);
 
+    console.log('Stats results:', { patients, practitioners, organizations, appointments });
+
     return NextResponse.json({
       ok: true,
       data: {
-        patients,
-        practitioners,
-        organizations,
-        appointments,
+        patients: patients ?? 0,
+        practitioners: practitioners ?? 0,
+        organizations: organizations ?? 0,
+        appointments: appointments ?? 0,
       },
+      debug: {
+        patientsRaw: patients,
+        practitionersRaw: practitioners,
+        organizationsRaw: organizations,
+        appointmentsRaw: appointments,
+      }
     });
   } catch (error: any) {
+    console.error('Stats API error:', error);
     return NextResponse.json({ ok: false, message: error.message }, { status: 500 });
   }
 }
