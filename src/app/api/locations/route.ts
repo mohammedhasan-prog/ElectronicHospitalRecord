@@ -15,6 +15,23 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Validate required environment variables
+    if (!process.env.FHIR_ROOT_HOST) {
+      console.error('❌ FHIR_ROOT_HOST environment variable is not set');
+      return NextResponse.json(
+        { ok: false, message: 'FHIR server configuration is missing' },
+        { status: 500 }
+      );
+    }
+
+    if (!process.env.TENANT_ID) {
+      console.error('❌ TENANT_ID environment variable is not set');
+      return NextResponse.json(
+        { ok: false, message: 'Tenant configuration is missing' },
+        { status: 500 }
+      );
+    }
+
     const { searchParams } = new URL(request.url);
     console.log('📋 Search params:', Object.fromEntries(searchParams.entries()));
 
