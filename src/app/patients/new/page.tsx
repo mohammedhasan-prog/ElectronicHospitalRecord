@@ -23,7 +23,8 @@ export default function NewPatientPage() {
     postalCode: '',
     country: '',
     maritalStatus: 'unknown',
-    active: true
+    active: true,
+    assignerOrg: ''
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -35,11 +36,8 @@ export default function NewPatientPage() {
       // Build FHIR Patient resource
       const newPatient = {
         resourceType: 'Patient',
-        identifier: [{
-          assigner: {
-            display: 'EHR Dashboard System'
-          }
-        }],
+        // identifier.assigner.reference is required by Oracle Health
+        identifier: [{ assigner: {} as any }],
         active: formData.active,
         name: [{
           use: 'official',
@@ -68,6 +66,14 @@ export default function NewPatientPage() {
           }]
         } : undefined
       };
+
+      // Client hint: If user provided an assignerOrg, set reference (server will also ensure via env)
+      if (formData.assignerOrg && typeof formData.assignerOrg === 'string') {
+        const trimmed = formData.assignerOrg.trim();
+        if (trimmed) {
+          (newPatient.identifier![0] as any).assigner.reference = trimmed.startsWith('Organization/') ? trimmed : `Organization/${trimmed}`;
+        }
+      }
 
       console.log('Submitting patient:', JSON.stringify(newPatient, null, 2));
 
@@ -382,6 +388,24 @@ export default function NewPatientPage() {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                 placeholder="e.g., United States"
               />
+            </div>
+            {/* Identifier Assigner */}
+            <div className="md:col-span-2 mt-6">
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Identifier Assigner (Organization)</h3>
+              <p className="text-sm text-gray-600 mb-3">Oracle Health requires identifier.assigner.reference to point to an Organization. If left blank, the server will use ASSIGNER_ORG_ID from your environment.</p>
+              <div>
+                <label htmlFor="assignerOrg" className="block text-sm font-medium text-gray-700 mb-2">
+                  Organization Reference (e.g., 675844 or Organization/675844)
+                </label>
+                <input
+                  type="text"
+                  id="assignerOrg"
+                  value={formData.assignerOrg}
+                  onChange={(e) => handleInputChange('assignerOrg', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Organization/675844"
+                />
+              </div>
             </div>
           </div>
 
