@@ -34,17 +34,25 @@ export default function PatientDetailPage() {
   const fetchPatient = async (id: string) => {
     setIsLoading(true);
     setError(null);
+    
+    console.log('Fetching patient with ID:', id);
 
     try {
-      const response = await fetch(`/api/patients/${id}`);
+      const response = await fetch(`/api/patients-simple/${id}`);
+      console.log('API Response status:', response.status);
+      
       const data = await response.json();
+      console.log('API Response data:', data);
 
       if (data.ok) {
+        console.log('Setting patient data:', data.patient);
         setPatient(data.patient);
       } else {
+        console.log('API returned error:', data.message);
         setError(data.message);
       }
     } catch (err: any) {
+      console.error('Fetch error:', err);
       setError(err.message);
     } finally {
       setIsLoading(false);

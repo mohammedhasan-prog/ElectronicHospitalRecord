@@ -152,21 +152,21 @@ export async function POST(request: NextRequest) {
     const accessToken = await getAccessToken();
     console.log('Access token obtained:', accessToken.substring(0, 20) + '...');
     
-    // Robust body parsing: handle empty body gracefully
+    // Parse request body
     let body: any = {};
     try {
       const raw = await request.text();
       if (raw && raw.trim().length > 0) {
-        try {
-          body = JSON.parse(raw);
-        } catch (e: any) {
-          return NextResponse.json({ ok: false, message: 'Invalid JSON body', error: e?.message || String(e) }, { status: 400 });
-        }
+        body = JSON.parse(raw);
       }
     } catch (e: any) {
-      // If we cannot read body, proceed with empty object
-      body = {};
+      return NextResponse.json({ 
+        ok: false, 
+        message: 'Invalid JSON body', 
+        error: e?.message || String(e) 
+      }, { status: 400 });
     }
+    
     console.log('Raw request body:', JSON.stringify(body, null, 2));
 
     const { TENANT_ID, FHIR_ROOT_HOST = 'https://fhir-ehr-code.cerner.com/r4' } = process.env;
@@ -184,294 +184,186 @@ export async function POST(request: NextRequest) {
       patientResource.resourceType = 'Patient';
     }
 
-    // Oracle Health requirement: Patient.identifier is required and
-    // identifier[0].assigner.reference must reference an Organization/{id}
-    const ASSIGNER_ORG_ID = process.env.ASSIGNER_ORG_ID; // e.g., 675844 or Organization/675844
-
-    const ensureAssignerReference = async () => {
-      const normalizeOrgRef = (val: string) => (
-        val?.startsWith('Organization/') ? val : `Organization/${val}`
-      );
-
-      // Determine whether we need to set assigner.reference
-      const identifiers = Array.isArray(patientResource.identifier) ? patientResource.identifier : [];
-      const first = identifiers[0] ?? {};
-      const assigner = first.assigner ?? {};
-      const hasRef = typeof assigner.reference === 'string' && assigner.reference.trim().length > 0;
-
-      // Helper to set from env
-      const setFromEnv = () => {
-        if (!ASSIGNER_ORG_ID) {
-          throw new Error('Missing ASSIGNER_ORG_ID. Please set ASSIGNER_ORG_ID in your environment to a valid Organization ID (e.g., 675844).');
-        }
-        const ref = normalizeOrgRef(ASSIGNER_ORG_ID);
-        if (!/^Organization\/[0-9]+$/.test(ref)) {
-          throw new Error(`ASSIGNER_ORG_ID must be numeric (e.g., 675844). Current value: ${ASSIGNER_ORG_ID}`);
-        }
-        if (!Array.isArray(patientResource.identifier) || patientResource.identifier.length === 0) {
-          patientResource.identifier = [{ assigner: { reference: ref } }];
-        } else {
-          patientResource.identifier[0] = { ...first, assigner: { ...assigner, reference: ref } };
-        }
-      };
-
-      // If missing, use env-configured Organization ID
-      if (!hasRef) {
-        setFromEnv();
-      } else {
-        // Validate provided assigner.reference is numeric Organization/<id>
-        const provided = String(assigner.reference).trim();
-        const normalized = normalizeOrgRef(provided);
-        const idPart = normalized.split('/')[1] || '';
-        const isNumeric = /^[0-9]+$/.test(idPart);
-        if (!isNumeric) {
-          // If env available, override with env; otherwise return error
-          if (ASSIGNER_ORG_ID) {
-            setFromEnv();
-          } else {
-            // Try to resolve provided value as an Organization name
-            const searchUrl = `${FHIR_ROOT_HOST}/${TENANT_ID}/Organization?name=${encodeURIComponent(provided)}&_count=1`;
-            const resp = await fetch(searchUrl, {
-              method: 'GET',
-              headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Accept': 'application/fhir+json',
-              },
-            });
-            if (resp.ok) {
-              const bundle = await resp.json();
-              const firstEntry = bundle.entry && bundle.entry[0];
-              const orgId = firstEntry?.resource?.id;
-              if (orgId && String(orgId).match(/^[0-9]+$/)) {
-                const ref = `Organization/${orgId}`;
-                if (!Array.isArray(patientResource.identifier) || patientResource.identifier.length === 0) {
-                  patientResource.identifier = [{ assigner: { reference: ref } }];
-                } else {
-                  patientResource.identifier[0] = { ...first, assigner: { ...assigner, reference: ref } };
-                }
-              } else {
-                throw new Error(`identifier.assigner.reference must be Organization/<numericId>. Could not resolve provided value by name: ${provided}`);
-              }
-            } else {
-              const t = await resp.text();
-              throw new Error(`identifier.assigner.reference must be Organization/<numericId>. Lookup failed for '${provided}'. Details: ${t}`);
-            }
-          }
-        } else {
-          // write back normalized reference to ensure correct prefix
-          if (!Array.isArray(patientResource.identifier) || patientResource.identifier.length === 0) {
-            patientResource.identifier = [{ assigner: { reference: normalized } }];
-          } else {
-            patientResource.identifier[0] = { ...first, assigner: { ...assigner, reference: normalized } };
-          }
-        }
-      }
-    };
-
-    // Determine if we need assigner.reference. Prefer identifier.system/value when provided.
-    const idArray = Array.isArray(patientResource.identifier) ? patientResource.identifier : [];
-    const id0 = idArray[0] || {};
-    const hasSystem = typeof id0.system === 'string' && id0.system.trim().length > 0;
-    const hasValue = typeof id0.value === 'string' && id0.value.trim().length > 0;
-
-    if (!hasSystem && !hasValue) {
-      try {
-        await ensureAssignerReference();
-      } catch (cfgErr: any) {
-        return NextResponse.json({
-          ok: false,
-          message: 'Configuration required to create Patient',
-          details: cfgErr.message,
-          hint: 'Provide identifier.system and identifier.value (preferred) or set ASSIGNER_ORG_ID in .env.local to your Organization ID (numbers only or Organization/{id}).',
-        }, { status: 400 });
-      }
-    }
-
-    // Optionally validate that the assigner Organization exists in this tenant
-    try {
-      const VERIFY_ASSIGNER_ORG = String(process.env.VERIFY_ASSIGNER_ORG || '').toLowerCase() === 'true';
-      if (VERIFY_ASSIGNER_ORG) {
-        const identifiers = Array.isArray(patientResource.identifier) ? patientResource.identifier : [];
-        const first = identifiers[0] ?? {};
-        const assignerRef = first?.assigner?.reference as string | undefined;
-        if (assignerRef && assignerRef.startsWith('Organization/')) {
-          const orgId = assignerRef.split('/')[1];
-          const verifyUrl = `${FHIR_ROOT_HOST}/${TENANT_ID}/Organization/${orgId}`;
-          const verifyResp = await fetch(verifyUrl, {
-            headers: {
-              'Authorization': `Bearer ${accessToken}`,
-              'Accept': 'application/fhir+json',
-            }
-          });
-          if (!verifyResp.ok) {
-            return NextResponse.json({
-              ok: false,
-              message: `Assigner organization not found or inaccessible: ${assignerRef}`,
-              details: await verifyResp.text(),
-              hint: 'Open Organizations in the app to copy a valid Organization ID, or set ASSIGNER_ORG_ID in .env.local to a valid numeric ID.',
-            }, { status: 400 });
-          }
-        }
-      }
-    } catch (e: any) {
-      // Non-fatal: continue if verification cannot run
-    }
-
-    // Validate required Patient fields commonly enforced by Oracle Health
+    // Validation for required fields per Oracle Health specification
     const validationIssues: string[] = [];
+
+    // 1. Validate identifier (required with assigner.reference to Organization)
+    if (!Array.isArray(patientResource.identifier) || patientResource.identifier.length === 0) {
+      patientResource.identifier = [{}];
+    }
+
+    const firstIdentifier = patientResource.identifier[0];
     
-    // Check if we need to enforce identifier.value (tenant-specific requirement)
-    const REQUIRE_IDENTIFIER_VALUE = String(process.env.REQUIRE_IDENTIFIER_VALUE || 'true').toLowerCase() === 'true';
-    const identifiers = Array.isArray(patientResource.identifier) ? patientResource.identifier : [];
-    const firstIdentifier = identifiers[0] ?? {};
-    const hasIdentifierValue = typeof firstIdentifier.value === 'string' && firstIdentifier.value.trim().length > 0;
-    
-    if (REQUIRE_IDENTIFIER_VALUE && !hasIdentifierValue) {
-      // Try auto-generation first before failing
-      const AUTO_GENERATE_IDENTIFIER = String(process.env.AUTO_GENERATE_IDENTIFIER || 'false').toLowerCase() === 'true';
-      if (!AUTO_GENERATE_IDENTIFIER) {
-        validationIssues.push('identifier[0].value is required by your Oracle Health tenant. Set AUTO_GENERATE_IDENTIFIER=true to auto-generate, or add an MRN manually.');
+    // Ensure assigner.reference is set to a valid Organization
+    const ASSIGNER_ORG_ID = process.env.ASSIGNER_ORG_ID || '675844'; // Default fallback
+    if (!firstIdentifier.assigner || !firstIdentifier.assigner.reference) {
+      if (!firstIdentifier.assigner) {
+        firstIdentifier.assigner = {};
+      }
+      firstIdentifier.assigner.reference = `Organization/${ASSIGNER_ORG_ID}`;
+    } else {
+      // Validate existing reference format
+      const ref = firstIdentifier.assigner.reference;
+      if (!ref.startsWith('Organization/')) {
+        firstIdentifier.assigner.reference = `Organization/${ref}`;
       }
     }
-    // Name: ensure at least one of given/family is present
-    const firstName = Array.isArray(patientResource.name) ? patientResource.name[0] : undefined;
-    const hasGiven = firstName && (
-      (Array.isArray(firstName.given) && firstName.given.some((g: any) => String(g || '').trim().length > 0)) ||
-      (typeof firstName.given === 'string' && firstName.given.trim().length > 0)
-    );
-    const hasFamily = firstName && typeof firstName.family === 'string' && firstName.family.trim().length > 0;
-    if (!hasGiven && !hasFamily) {
-      validationIssues.push('At least one name with family or given is required.');
+
+    // 2. Validate name (required)
+    if (!Array.isArray(patientResource.name) || patientResource.name.length === 0) {
+      validationIssues.push('name is required and must contain at least one name entry.');
+    } else {
+      const primaryName = patientResource.name[0];
+      if (!primaryName.family && (!primaryName.given || primaryName.given.length === 0)) {
+        validationIssues.push('name must contain either family name or given name.');
+      }
+      
+      // Ensure name has proper use field
+      if (!primaryName.use) {
+        primaryName.use = 'official';
+      }
     }
-    // birthDate should not be in the future and must be YYYY-MM-DD if provided
-    if (patientResource.birthDate) {
-      const d = new Date(patientResource.birthDate);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      if (isNaN(d.getTime())) {
-        validationIssues.push('birthDate must be a valid date in format YYYY-MM-DD.');
+
+    // 3. Validate gender (convert to lowercase if provided)
+    if (patientResource.gender) {
+      const validGenders = ['male', 'female', 'other', 'unknown'];
+      if (!validGenders.includes(patientResource.gender.toLowerCase())) {
+        validationIssues.push(`Invalid gender "${patientResource.gender}". Valid values: male, female, other, unknown`);
       } else {
-        if (d > today) {
+        patientResource.gender = patientResource.gender.toLowerCase();
+      }
+    }
+
+    // 4. Validate birthDate format (YYYY-MM-DD)
+    if (patientResource.birthDate) {
+      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+      if (!dateRegex.test(patientResource.birthDate)) {
+        validationIssues.push('birthDate must be in YYYY-MM-DD format.');
+      } else {
+        const birthDate = new Date(patientResource.birthDate);
+        const today = new Date();
+        if (birthDate > today) {
           validationIssues.push('birthDate cannot be in the future.');
         }
       }
     }
 
-    // Additional Oracle Health-specific validations
-    // Validate address if provided
-    if (Array.isArray(patientResource.address) && patientResource.address.length > 0) {
-      const addr = patientResource.address[0];
-      if (addr.state && typeof addr.state === 'string') {
-        const state = addr.state.trim();
-        // Validate US state codes (Oracle often expects proper codes)
-        const usStateCodes = ['AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY', 'DC'];
-        if (addr.country === 'United States' || addr.country === 'US') {
-          if (!usStateCodes.includes(state.toUpperCase())) {
-            validationIssues.push(`Invalid US state code "${state}". Use standard 2-letter codes (e.g., MO, CA, NY).`);
+    // 5. Validate telecom if provided
+    if (Array.isArray(patientResource.telecom)) {
+      for (let i = 0; i < patientResource.telecom.length; i++) {
+        const telecom = patientResource.telecom[i];
+        
+        // Ensure system is valid
+        const validSystems = ['phone', 'fax', 'email', 'pager', 'url', 'sms', 'other'];
+        if (!validSystems.includes(telecom.system)) {
+          validationIssues.push(`telecom[${i}].system must be one of: ${validSystems.join(', ')}`);
+        }
+        
+        // Validate phone numbers
+        if (telecom.system === 'phone' && telecom.value) {
+          const phoneDigits = telecom.value.replace(/\D/g, '');
+          if (phoneDigits.length < 10) {
+            validationIssues.push(`telecom[${i}] phone number must have at least 10 digits.`);
           }
         }
-      }
-      if (addr.country && typeof addr.country === 'string') {
-        const country = addr.country.trim();
-        // Suggest ISO codes for common countries
-        const countryMappings: Record<string, string> = {
-          'india': 'IN',
-          'united states': 'US',
-          'united states of america': 'US',
-          'usa': 'US',
-          'canada': 'CA',
-          'united kingdom': 'GB',
-          'uk': 'GB'
-        };
-        const lowerCountry = country.toLowerCase();
-        if (countryMappings[lowerCountry]) {
-          // Auto-correct common country names to ISO codes
-          addr.country = countryMappings[lowerCountry];
+        
+        // Validate email format
+        if (telecom.system === 'email' && telecom.value) {
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          if (!emailRegex.test(telecom.value)) {
+            validationIssues.push(`telecom[${i}] email format is invalid.`);
+          }
+        }
+        
+        // Ensure use field is valid if provided
+        if (telecom.use) {
+          const validUses = ['home', 'work', 'temp', 'old', 'mobile'];
+          if (!validUses.includes(telecom.use)) {
+            validationIssues.push(`telecom[${i}].use must be one of: ${validUses.join(', ')}`);
+          }
         }
       }
     }
 
-    // Validate maritalStatus coding
-    if (patientResource.maritalStatus && patientResource.maritalStatus.coding) {
-      const coding = Array.isArray(patientResource.maritalStatus.coding) ? patientResource.maritalStatus.coding[0] : patientResource.maritalStatus.coding;
-      if (coding && coding.code) {
-        const validMaritalCodes = ['A', 'D', 'I', 'L', 'M', 'P', 'S', 'T', 'U', 'W'];
-        if (!validMaritalCodes.includes(coding.code)) {
-          validationIssues.push(`Invalid marital status code "${coding.code}". Valid codes: A(Annulled), D(Divorced), I(Interlocutory), L(Legally Separated), M(Married), P(Polygamous), S(Never Married), T(Domestic Partner), U(Unmarried), W(Widowed).`);
+    // 6. Validate address if provided
+    if (Array.isArray(patientResource.address)) {
+      for (let i = 0; i < patientResource.address.length; i++) {
+        const address = patientResource.address[i];
+        
+        // Validate use field
+        if (address.use) {
+          const validUses = ['home', 'work', 'temp', 'old', 'billing'];
+          if (!validUses.includes(address.use)) {
+            validationIssues.push(`address[${i}].use must be one of: ${validUses.join(', ')}`);
+          }
         }
-        // Add display text for Oracle compatibility
-        if (!coding.display) {
-          const displayMap: Record<string, string> = {
-            'A': 'Annulled', 'D': 'Divorced', 'I': 'Interlocutory', 'L': 'Legally Separated',
-            'M': 'Married', 'P': 'Polygamous', 'S': 'Never Married', 'T': 'Domestic Partner',
-            'U': 'Unmarried', 'W': 'Widowed'
-          };
+        
+        // Validate US state codes
+        if (address.state && address.country && (address.country.toUpperCase() === 'US' || address.country.toLowerCase() === 'united states')) {
+          const usStates = ['AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY', 'DC'];
+          if (!usStates.includes(address.state.toUpperCase())) {
+            validationIssues.push(`address[${i}].state "${address.state}" is not a valid US state code.`);
+          }
+        }
+      }
+    }
+
+    // 7. Validate maritalStatus if provided
+    if (patientResource.maritalStatus && patientResource.maritalStatus.coding) {
+      const coding = Array.isArray(patientResource.maritalStatus.coding) 
+        ? patientResource.maritalStatus.coding[0] 
+        : patientResource.maritalStatus.coding;
+        
+      if (coding && coding.code) {
+        const validCodes = ['A', 'D', 'I', 'L', 'M', 'P', 'S', 'T', 'U', 'W'];
+        if (!validCodes.includes(coding.code)) {
+          validationIssues.push(`maritalStatus.coding.code "${coding.code}" is invalid. Valid codes: ${validCodes.join(', ')}`);
+        }
+        
+        // Ensure system is set
+        if (!coding.system) {
+          coding.system = 'http://terminology.hl7.org/CodeSystem/v3-MaritalStatus';
+        }
+        
+        // Add display text if missing
+        const displayMap: Record<string, string> = {
+          'A': 'Annulled', 'D': 'Divorced', 'I': 'Interlocutory', 'L': 'Legally Separated',
+          'M': 'Married', 'P': 'Polygamous', 'S': 'Never Married', 'T': 'Domestic Partner',
+          'U': 'Unmarried', 'W': 'Widowed'
+        };
+        if (!coding.display && displayMap[coding.code]) {
           coding.display = displayMap[coding.code];
         }
       }
     }
 
-    // Validate telecom values
-    if (Array.isArray(patientResource.telecom)) {
-      for (const tel of patientResource.telecom) {
-        if (tel.system === 'phone' && tel.value) {
-          // Basic phone validation - Oracle often rejects malformed phones
-          const phone = String(tel.value).replace(/\D/g, '');
-          if (phone.length < 10 || phone.length > 15) {
-            validationIssues.push(`Phone number "${tel.value}" should be 10-15 digits. Include area code.`);
-          }
-        }
-        if (tel.system === 'email' && tel.value) {
-          // Basic email validation
-          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-          if (!emailRegex.test(String(tel.value))) {
-            validationIssues.push(`Email "${tel.value}" is not in valid format.`);
-          }
+    // 8. Validate extensions format if provided
+    if (Array.isArray(patientResource.extension)) {
+      for (let i = 0; i < patientResource.extension.length; i++) {
+        const ext = patientResource.extension[i];
+        if (!ext.url) {
+          validationIssues.push(`extension[${i}] must have a url property.`);
         }
       }
     }
 
     if (validationIssues.length > 0) {
-      const summary = validationIssues.join(' ');
       return NextResponse.json({
         ok: false,
-        message: `Patient validation failed before sending to FHIR. ${summary}`,
+        message: 'Patient validation failed',
         details: validationIssues,
-        hint: 'Add AUTO_GENERATE_IDENTIFIER=true to .env.local to auto-generate MRNs, or manually add identifier.value. Also verify: proper state codes, 10+ digit phones, valid birthDate.',
+        code: 'VALIDATION_ERROR'
       }, { status: 400 });
     }
 
-    // Optionally auto-generate an identifier value when missing (for sandbox/demo)
-    // Configure via env: AUTO_GENERATE_IDENTIFIER=true, IDENTIFIER_SYSTEM, IDENTIFIER_PREFIX
-    try {
-      const AUTO_GENERATE_IDENTIFIER = String(process.env.AUTO_GENERATE_IDENTIFIER || 'false').toLowerCase() === 'true';
-      if (AUTO_GENERATE_IDENTIFIER) {
-        const identifiers = Array.isArray(patientResource.identifier) ? patientResource.identifier : [];
-        if (identifiers.length === 0) {
-          patientResource.identifier = [{}];
-        }
-        const firstIdentifier = patientResource.identifier[0];
-        if (!firstIdentifier.value || String(firstIdentifier.value).trim().length === 0) {
-          const prefix = process.env.IDENTIFIER_PREFIX || 'MRN';
-          const timestamp = Date.now().toString().slice(-8); // Last 8 digits of timestamp
-          const random = Math.floor(Math.random() * 900) + 100; // 3-digit random
-          firstIdentifier.value = `${prefix}${timestamp}${random}`;
-          console.log('Auto-generated identifier.value:', firstIdentifier.value);
-        }
-        if (!firstIdentifier.system || String(firstIdentifier.system).trim().length === 0) {
-          firstIdentifier.system = process.env.IDENTIFIER_SYSTEM || 'urn:oid:1.2.3.4.5.6.7.8.9';
-          console.log('Auto-generated identifier.system:', firstIdentifier.system);
-        }
-        patientResource.identifier[0] = firstIdentifier;
-      }
-    } catch (e) {
-      console.error('Error in auto-generation:', e);
-      // Non-fatal; continue without auto-generation
-    }
+    // Clean up the patient resource - remove undefined fields
+    const cleanPatient = JSON.parse(JSON.stringify(patientResource, (key, value) => {
+      return value === undefined ? undefined : value;
+    }));
 
     const url = `${FHIR_ROOT_HOST}/${TENANT_ID}/Patient`;
     console.log('FHIR API URL:', url);
-    console.log('Patient payload to send:', JSON.stringify(patientResource, null, 2));
+    console.log('Clean patient payload:', JSON.stringify(cleanPatient, null, 2));
 
     const response = await fetch(url, {
       method: 'POST',
@@ -480,7 +372,7 @@ export async function POST(request: NextRequest) {
         'Accept': 'application/fhir+json',
         'Content-Type': 'application/fhir+json',
       },
-      body: JSON.stringify(patientResource),
+      body: JSON.stringify(cleanPatient),
     });
 
     console.log('FHIR API Response Status:', response.status);
@@ -488,97 +380,78 @@ export async function POST(request: NextRequest) {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.log('FHIR API Error Response Body:', errorText);
+      console.log('FHIR API Error Response:', errorText);
       
-      // Try to parse as JSON for better error details
       let errorDetails = errorText;
       let outcomeSummary: string | undefined;
+      
       try {
         const errorJson = JSON.parse(errorText);
         errorDetails = errorJson;
-        console.log('Parsed error JSON:', JSON.stringify(errorJson, null, 2));
+        
         if (errorJson?.resourceType === 'OperationOutcome' && Array.isArray(errorJson.issue)) {
-          const parts: string[] = [];
-          for (const iss of errorJson.issue) {
-            const segs: string[] = [];
-            if (iss?.severity) segs.push(`[${String(iss.severity)}]`);
-            if (iss?.code) segs.push(String(iss.code));
-            if (iss?.details?.text) segs.push(String(iss.details.text));
-            if (Array.isArray(iss?.details?.coding)) {
-              for (const c of iss.details.coding) {
-                if (c?.display) segs.push(String(c.display));
-                else if (c?.code) segs.push(String(c.code));
-              }
-            }
-            if (iss?.diagnostics) segs.push(String(iss.diagnostics));
-            if (segs.length > 0) parts.push(segs.join(' '));
-          }
-          if (parts.length > 0) outcomeSummary = parts.join(' | ');
+          const issues = errorJson.issue.map((issue: any) => {
+            const parts = [];
+            if (issue.severity) parts.push(`[${issue.severity}]`);
+            if (issue.code) parts.push(issue.code);
+            if (issue.details?.text) parts.push(issue.details.text);
+            if (issue.diagnostics) parts.push(issue.diagnostics);
+            return parts.join(' ');
+          });
+          outcomeSummary = issues.join(' | ');
         }
       } catch (e) {
         console.log('Error response is not valid JSON');
       }
       
-      const baseMessage = `FHIR API request failed: ${response.statusText}`;
-      const message = outcomeSummary ? `${baseMessage} - ${outcomeSummary}` : baseMessage;
-      // Provide a targeted hint for common identifier-related errors
-      const hint = outcomeSummary && /identifier/i.test(outcomeSummary) && /value/i.test(outcomeSummary)
-        ? 'Your tenant may require identifier.value (MRN). Provide one in the form or set AUTO_GENERATE_IDENTIFIER=true to synthesize a demo value.'
-        : undefined;
-
       return NextResponse.json({ 
         ok: false, 
-        message, 
+        message: `FHIR API request failed: ${response.statusText}${outcomeSummary ? ` - ${outcomeSummary}` : ''}`,
         details: errorDetails,
         status: response.status,
-        url: url,
-        payload: patientResource,
-        hint,
+        code: 'FHIR_ERROR'
       }, { status: response.status });
     }
 
-    // Oracle Health may return 201 with empty body and Location header.
-    // Only attempt to parse JSON if content-type indicates JSON.
+    // Handle successful response
     let createdPatient: any = null;
     const contentType = response.headers.get('content-type') || '';
+    
     if (contentType.includes('application/fhir+json')) {
       try {
         createdPatient = await response.json();
       } catch (e) {
-        // Empty body: ignore
-        createdPatient = null;
+        // Empty body is acceptable for 201 responses
+        console.log('Response body is empty or not JSON');
       }
     }
-    if (createdPatient) {
-      console.log('Created patient response:', JSON.stringify(createdPatient, null, 2));
-    } else {
-      console.log('Created patient response: <empty body>');
-    }
 
-    // Extract the new patient ID from the Location header or response
+    // Extract patient ID from Location header or response body
     const locationHeader = response.headers.get('location');
-    console.log('Location header:', locationHeader);
+    let patientId = locationHeader?.split('/').pop();
     
-    let patientId = locationHeader 
-      ? locationHeader.split('/').pop() 
-      : undefined;
-    if (!patientId && createdPatient && createdPatient.id) {
+    if (!patientId && createdPatient?.id) {
       patientId = createdPatient.id;
     }
-    
-    console.log('Extracted patient ID:', patientId);
+
+    console.log('Created patient ID:', patientId);
     console.log('=== PATIENT CREATION API SUCCESS ===');
 
     return NextResponse.json({ 
       ok: true, 
       patient: createdPatient,
       id: patientId,
-      location: locationHeader
+      location: locationHeader,
+      message: 'Patient created successfully'
     }, { status: 201 });
+    
   } catch (error: any) {
     console.error('=== PATIENT CREATION API ERROR ===');
     console.error('Error details:', error);
-    console.error('Error stack:', error.stack);
-    return NextResponse.json({ ok: false, message: error.message, error: error.toString() }, { status: 500 });
+    return NextResponse.json({ 
+      ok: false, 
+      message: error.message, 
+      code: 'INTERNAL_ERROR'
+    }, { status: 500 });
   }
 }

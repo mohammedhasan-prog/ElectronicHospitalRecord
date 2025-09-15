@@ -59,41 +59,67 @@ export default function NewPatientPage() {
     setError(null);
 
     try {
-      // Build FHIR Patient resource
+      // Build FHIR Patient resource according to Oracle Health specification
       const newPatient = {
         resourceType: 'Patient',
-        // identifier.assigner.reference is required by Oracle Health
-        identifier: [{ assigner: {} as any }],
         active: formData.active,
+        
+        // Name is required - ensure at least given or family
         name: [{
           use: 'official',
-          family: formData.family,
-          given: formData.given.split(' ').filter(Boolean)
+          family: formData.family || undefined,
+          given: formData.given ? formData.given.split(' ').filter(Boolean) : undefined
         }],
-        gender: formData.gender !== 'unknown' ? formData.gender : undefined,
-        birthDate: formData.birthDate,
+        
+        // Gender should be lowercase
+        gender: formData.gender !== 'unknown' ? formData.gender.toLowerCase() : undefined,
+        
+        // Birth date in YYYY-MM-DD format
+        birthDate: formData.birthDate || undefined,
+        
+        // Telecom with proper validation
         telecom: [
-          ...(formData.phone ? [{ system: 'phone', value: formData.phone, use: 'home' }] : []),
-          ...(formData.email ? [{ system: 'email', value: formData.email, use: 'home' }] : [])
-        ],
-        address: [{
+          ...(formData.phone ? [{ 
+            system: 'phone', 
+            value: formData.phone, 
+            use: 'home' 
+          }] : []),
+          ...(formData.email ? [{ 
+            system: 'email', 
+            value: formData.email, 
+            use: 'home' 
+          }] : [])
+        ].filter(Boolean),
+        
+        // Address with proper structure
+        address: (formData.addressLine || formData.city || formData.state || formData.postalCode) ? [{
           use: 'home',
           type: 'physical',
-          line: formData.addressLine ? [formData.addressLine] : [],
-          city: formData.city,
-          state: formData.state,
-          postalCode: formData.postalCode,
-          country: formData.country
-        }],
+          line: formData.addressLine ? [formData.addressLine] : undefined,
+          city: formData.city || undefined,
+          state: formData.state || undefined,
+          postalCode: formData.postalCode || undefined,
+          country: formData.country || 'US'
+        }] : undefined,
+        
+        // Marital status with proper coding
         maritalStatus: formData.maritalStatus !== 'unknown' ? {
           coding: [{
             system: 'http://terminology.hl7.org/CodeSystem/v3-MaritalStatus',
-            code: formData.maritalStatus
+            code: formData.maritalStatus,
+            display: getMaritalStatusDisplay(formData.maritalStatus)
           }]
-        } : undefined
+        } : undefined,
+        
+        // Identifier with assigner reference (Oracle Health requirement)
+        identifier: [{ 
+          use: 'usual',
+          system: 'urn:oid:1.2.3.4.5.6.7.8.9', // Default system
+          assigner: {} as any 
+        }]
       };
 
-      // Client hint: If user provided an assignerOrg, set reference (server will also ensure via env)
+      // Set assigner reference if organization is selected
       if (formData.assignerOrg && typeof formData.assignerOrg === 'string') {
         const trimmed = formData.assignerOrg.trim();
         if (trimmed) {
@@ -101,20 +127,30 @@ export default function NewPatientPage() {
         }
       }
 
-      console.log('Submitting patient:', JSON.stringify(newPatient, null, 2));
+      // Clean up undefined values
+      const cleanPatient = JSON.parse(JSON.stringify(newPatient, (key, value) => {
+        if (value === undefined) return undefined;
+        if (Array.isArray(value) && value.length === 0) return undefined;
+        return value;
+      }));
 
-      const response = await fetch('/api/patients', {
+      console.log('Submitting patient:', JSON.stringify(cleanPatient, null, 2));
+
+      const response = await fetch('/api/patients-simple', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/fhir+json',
         },
-        body: JSON.stringify({ patient: newPatient })
+        body: JSON.stringify(cleanPatient)
       });
 
       const result = await response.json();
       console.log('API Response:', result);
 
       if (result.ok) {
+        console.log('Patient created successfully, ID:', result.id);
+        console.log('Redirecting to:', `/patients/${result.id}`);
+        
         // Redirect to the new patient's detail page
         router.push(`/patients/${result.id}`);
       } else {
@@ -122,30 +158,36 @@ export default function NewPatientPage() {
         let errorMessage = result.message || 'Unknown error occurred';
         
         if (result.details) {
-          try {
-            if (typeof result.details === 'string') {
-              const detailsJson = JSON.parse(result.details);
-              if (detailsJson.issue && Array.isArray(detailsJson.issue)) {
-                const issues = detailsJson.issue.map((issue: any) => 
-                  `${issue.severity}: ${issue.diagnostics || issue.details?.text || 'Unknown issue'}`
-                ).join('\n');
-                errorMessage += '\n\nDetails:\n' + issues;
+          if (Array.isArray(result.details)) {
+            // Validation errors array
+            errorMessage += '\n\nValidation Issues:\n• ' + result.details.join('\n• ');
+          } else {
+            // FHIR OperationOutcome or other error details
+            try {
+              if (typeof result.details === 'string') {
+                const detailsJson = JSON.parse(result.details);
+                if (detailsJson.issue && Array.isArray(detailsJson.issue)) {
+                  const issues = detailsJson.issue.map((issue: any) => 
+                    `${issue.severity}: ${issue.diagnostics || issue.details?.text || 'Unknown issue'}`
+                  ).join('\n');
+                  errorMessage += '\n\nFHIR Issues:\n' + issues;
+                }
+              } else if (typeof result.details === 'object') {
+                if (result.details.issue && Array.isArray(result.details.issue)) {
+                  const issues = result.details.issue.map((issue: any) => 
+                    `${issue.severity}: ${issue.diagnostics || issue.details?.text || 'Unknown issue'}`
+                  ).join('\n');
+                  errorMessage += '\n\nFHIR Issues:\n' + issues;
+                }
               }
-            } else if (typeof result.details === 'object') {
-              if (result.details.issue && Array.isArray(result.details.issue)) {
-                const issues = result.details.issue.map((issue: any) => 
-                  `${issue.severity}: ${issue.diagnostics || issue.details?.text || 'Unknown issue'}`
-                ).join('\n');
-                errorMessage += '\n\nDetails:\n' + issues;
-              }
+            } catch (e) {
+              errorMessage += '\n\nRaw details: ' + JSON.stringify(result.details, null, 2);
             }
-          } catch (e) {
-            errorMessage += '\n\nRaw details: ' + JSON.stringify(result.details, null, 2);
           }
         }
         
-        if (result.payload) {
-          errorMessage += '\n\nPayload sent: ' + JSON.stringify(result.payload, null, 2);
+        if (result.hint) {
+          errorMessage += '\n\nHint: ' + result.hint;
         }
         
         setError(errorMessage);
@@ -156,6 +198,23 @@ export default function NewPatientPage() {
     } finally {
       setIsCreating(false);
     }
+  };
+
+  // Helper function for marital status display
+  const getMaritalStatusDisplay = (code: string): string => {
+    const displayMap: Record<string, string> = {
+      'A': 'Annulled',
+      'D': 'Divorced', 
+      'I': 'Interlocutory',
+      'L': 'Legally Separated',
+      'M': 'Married',
+      'P': 'Polygamous',
+      'S': 'Never Married',
+      'T': 'Domestic Partner',
+      'U': 'Unmarried',
+      'W': 'Widowed'
+    };
+    return displayMap[code] || code;
   };
 
   const handleInputChange = (field: string, value: string | boolean) => {
