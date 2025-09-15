@@ -316,7 +316,7 @@ export default function PractitionersPage() {
                 value={filters.name}
                 onChange={(e) => setFilters(prev => ({ ...prev, name: e.target.value }))}
                 placeholder="Search by full name..."
-                className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${filters.name && filters.name.trim().length > 0 && filters.name.trim().length < 2 ? 'border-red-300 bg-red-50' : 'border-gray-300'}`}
+                className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 placeholder-gray-500 ${filters.name && filters.name.trim().length > 0 && filters.name.trim().length < 2 ? 'border-red-300 bg-red-50' : 'border-gray-300'}`}
                 minLength={2}
               />
               {filters.name && filters.name.trim().length > 0 && filters.name.trim().length < 2 && (

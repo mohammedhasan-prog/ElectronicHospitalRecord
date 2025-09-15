@@ -56,14 +56,25 @@ export async function GET(request: NextRequest) {
         // Standard organization search
         const baseUrl = new URL(`${FHIR_ROOT_HOST}/${TENANT_ID}/Organization`);
         
-        // Add search parameters
+        // Add search parameters with validation for name search
         if (id) baseUrl.searchParams.append('_id', id);
-        if (name) baseUrl.searchParams.append('name', name);
+        if (name) {
+          const trimmedName = name.trim();
+          if (trimmedName.length < 2) {
+            return NextResponse.json({ 
+              ok: false, 
+              message: 'Organization name search requires at least 2 characters.',
+              organizations: [],
+              pagination: { total: 0, nextCursor: null, hasNext: false }
+            }, { status: 400 });
+          }
+          baseUrl.searchParams.append('name', trimmedName);
+        }
         if (address) baseUrl.searchParams.append('address', address);
         if (identifier) baseUrl.searchParams.append('identifier', identifier);
         if (type) baseUrl.searchParams.append('type', type);
         if (count) baseUrl.searchParams.append('_count', count);
-        else baseUrl.searchParams.append('_count', '10'); // Default count
+        else baseUrl.searchParams.append('_count', '20'); // Increased default for typeahead
         
         url = baseUrl.toString();
         console.log('GET /api/organizations - Built standard Organization search URL:', url);
@@ -111,13 +122,15 @@ export async function GET(request: NextRequest) {
       const org = entry.resource;
       return {
         id: org.id,
-        name: org.name,
+        name: org.name || 'Unnamed Organization',
+        display: org.name || 'Unnamed Organization',
         status: org.active ? 'Active' : 'Inactive',
         type: org.type?.[0]?.text || org.type?.[0]?.coding?.[0]?.display || 'Unknown',
         types: org.type || [],
         identifier: org.identifier || [],
         telecom: org.telecom || [],
         address: org.address || [],
+        active: org.active,
         meta: org.meta,
         fullResource: org // Include full resource for details view
       };

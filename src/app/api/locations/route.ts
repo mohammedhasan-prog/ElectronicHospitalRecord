@@ -54,20 +54,25 @@ export async function GET(request: NextRequest) {
     const hasAddress = fhirParams.has('address');
     const hasIdentifier = fhirParams.has('identifier');
 
-    // Either _id or -physicalType is required
+    // Either _id or -physicalType is required. If missing but name/organization present, default to bu (building) to support UI typeahead.
     if (!hasId && !hasPhysicalType) {
-      console.error('❌ Either _id or -physicalType parameter is required');
-      return NextResponse.json(
-        { 
-          ok: false, 
-          message: 'Either _id or -physicalType parameter is required for Location search'
-        },
-        { status: 400 }
-      );
+      if (hasName || hasOrganization || hasAddress || hasAddressCity || hasAddressState || hasAddressPostal || hasIdentifier) {
+        console.warn('⚠️ Missing -physicalType; defaulting to bu for search');
+        fhirParams.append('-physicalType', 'bu');
+      } else {
+        console.error('❌ Either _id or -physicalType parameter is required');
+        return NextResponse.json(
+          { 
+            ok: false, 
+            message: 'Either _id or -physicalType parameter is required for Location search'
+          },
+          { status: 400 }
+        );
+      }
     }
 
     // Validate name parameter dependencies
-    if (hasName && !hasPhysicalType && !hasIdentifier && !hasAddress && !hasAddressState && !hasAddressCity && !hasAddressPostal) {
+    if (hasName && !fhirParams.has('-physicalType') && !hasIdentifier && !hasAddress && !hasAddressState && !hasAddressCity && !hasAddressPostal) {
       console.error('❌ Name parameter requires additional search criteria');
       return NextResponse.json(
         { 
@@ -79,7 +84,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Validate organization parameter dependencies
-    if (hasOrganization && !hasPhysicalType && !hasIdentifier && !hasAddress && !hasAddressState && !hasAddressCity && !hasAddressPostal) {
+    if (hasOrganization && !fhirParams.has('-physicalType') && !hasIdentifier && !hasAddress && !hasAddressState && !hasAddressCity && !hasAddressPostal) {
       console.error('❌ Organization parameter requires additional search criteria');
       return NextResponse.json(
         { 

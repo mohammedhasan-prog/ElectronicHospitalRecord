@@ -3,11 +3,32 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { ArrowLeftIcon, UserIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
+import OrganizationAutoSuggest from '@/components/auto-suggest/OrganizationAutoSuggest';
+
+interface Organization {
+  id: string;
+  name: string;
+  display: string;
+  address?: {
+    line?: string[];
+    city?: string;
+    state?: string;
+    postalCode?: string;
+    country?: string;
+  };
+  type?: {
+    coding?: Array<{
+      display?: string;
+    }>;
+  };
+}
 
 export default function NewPatientPage() {
   const router = useRouter();
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedOrganization, setSelectedOrganization] = useState<Organization | null>(null);
   
   // Form fields
   const [formData, setFormData] = useState({
@@ -26,6 +47,11 @@ export default function NewPatientPage() {
     active: true,
     assignerOrg: ''
   });
+
+  const handleOrganizationSelect = (organization: Organization) => {
+    setSelectedOrganization(organization);
+    setFormData(prev => ({ ...prev, assignerOrg: `Organization/${organization.id}` }));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -194,7 +220,7 @@ export default function NewPatientPage() {
                 required
                 value={formData.given}
                 onChange={(e) => handleInputChange('given', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 placeholder-gray-500"
                 placeholder="e.g., John"
               />
             </div>
@@ -209,7 +235,7 @@ export default function NewPatientPage() {
                 required
                 value={formData.family}
                 onChange={(e) => handleInputChange('family', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 placeholder-gray-500"
                 placeholder="e.g., Doe"
               />
             </div>
@@ -222,7 +248,7 @@ export default function NewPatientPage() {
                 id="gender"
                 value={formData.gender}
                 onChange={(e) => handleInputChange('gender', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900"
               >
                 <option value="unknown">Unknown</option>
                 <option value="male">Male</option>
@@ -241,7 +267,7 @@ export default function NewPatientPage() {
                 required
                 value={formData.birthDate}
                 onChange={(e) => handleInputChange('birthDate', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900"
               />
             </div>
 
@@ -253,7 +279,7 @@ export default function NewPatientPage() {
                 id="maritalStatus"
                 value={formData.maritalStatus}
                 onChange={(e) => handleInputChange('maritalStatus', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900"
               >
                 <option value="unknown">Unknown</option>
                 <option value="A">Annulled</option>
@@ -296,7 +322,7 @@ export default function NewPatientPage() {
                 id="phone"
                 value={formData.phone}
                 onChange={(e) => handleInputChange('phone', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 placeholder-gray-500"
                 placeholder="e.g., (555) 123-4567"
               />
             </div>
@@ -310,7 +336,7 @@ export default function NewPatientPage() {
                 id="email"
                 value={formData.email}
                 onChange={(e) => handleInputChange('email', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 placeholder-gray-500"
                 placeholder="e.g., patient@example.com"
               />
             </div>
@@ -329,7 +355,7 @@ export default function NewPatientPage() {
                 id="addressLine"
                 value={formData.addressLine}
                 onChange={(e) => handleInputChange('addressLine', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 placeholder-gray-500"
                 placeholder="e.g., 123 Main Street"
               />
             </div>
@@ -343,7 +369,7 @@ export default function NewPatientPage() {
                 id="city"
                 value={formData.city}
                 onChange={(e) => handleInputChange('city', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 placeholder-gray-500"
                 placeholder="e.g., Kansas City"
               />
             </div>
@@ -357,7 +383,7 @@ export default function NewPatientPage() {
                 id="state"
                 value={formData.state}
                 onChange={(e) => handleInputChange('state', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 placeholder-gray-500"
                 placeholder="e.g., MO"
               />
             </div>
@@ -371,7 +397,7 @@ export default function NewPatientPage() {
                 id="postalCode"
                 value={formData.postalCode}
                 onChange={(e) => handleInputChange('postalCode', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 placeholder-gray-500"
                 placeholder="e.g., 64111"
               />
             </div>
@@ -385,25 +411,39 @@ export default function NewPatientPage() {
                 id="country"
                 value={formData.country}
                 onChange={(e) => handleInputChange('country', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 placeholder-gray-500"
                 placeholder="e.g., United States"
               />
             </div>
             {/* Identifier Assigner */}
             <div className="md:col-span-2 mt-6">
               <h3 className="text-lg font-medium text-gray-900 mb-2">Identifier Assigner (Organization)</h3>
-              <p className="text-sm text-gray-600 mb-3">Oracle Health requires identifier.assigner.reference to point to an Organization. If left blank, the server will use ASSIGNER_ORG_ID from your environment.</p>
-              <div>
-                <label htmlFor="assignerOrg" className="block text-sm font-medium text-gray-700 mb-2">
-                  Organization Reference (e.g., 675844 or Organization/675844)
+              <p className="text-sm text-gray-600 mb-3">Oracle Health requires identifier.assigner.reference to point to an Organization.</p>
+              
+              <OrganizationAutoSuggest
+                onSelect={handleOrganizationSelect}
+                placeholder="Search organizations by name..."
+                label="Organization"
+                required
+              />
+
+              {/* Manual input fallback */}
+              <div className="mt-2">
+                <label htmlFor="assignerOrgManual" className="block text-sm font-medium text-gray-500 mb-1">
+                  Or enter Organization ID manually:
                 </label>
                 <input
                   type="text"
-                  id="assignerOrg"
+                  id="assignerOrgManual"
                   value={formData.assignerOrg}
-                  onChange={(e) => handleInputChange('assignerOrg', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Organization/675844"
+                  onChange={(e) => {
+                    handleInputChange('assignerOrg', e.target.value);
+                    if (e.target.value.trim()) {
+                      setSelectedOrganization(null);
+                    }
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 placeholder-gray-500"
+                  placeholder="Organization/675844 or 675844"
                 />
               </div>
             </div>
