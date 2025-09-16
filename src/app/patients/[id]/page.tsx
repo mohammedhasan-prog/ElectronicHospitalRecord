@@ -38,14 +38,33 @@ export default function PatientDetailPage() {
     console.log('Fetching patient with ID:', id);
 
     try {
-      const response = await fetch(`/api/patients-simple/${id}`);
-      console.log('API Response status:', response.status);
+      // Try the main FHIR API first
+      const response = await fetch(`/api/patients/${id}`);
+      console.log('Main API Response status:', response.status);
+      
+      if (!response.ok) {
+        console.log('Main API failed, trying fallback...');
+        // Fallback to simple API if main API fails
+        const fallbackResponse = await fetch(`/api/patients-simple/${id}`);
+        console.log('Fallback API Response status:', fallbackResponse.status);
+        
+        const fallbackData = await fallbackResponse.json();
+        console.log('Fallback API Response data:', fallbackData);
+
+        if (fallbackData.ok) {
+          console.log('Setting patient data from fallback:', fallbackData.patient);
+          setPatient(fallbackData.patient);
+        } else {
+          throw new Error(fallbackData.message || 'Failed to load patient from fallback API');
+        }
+        return;
+      }
       
       const data = await response.json();
-      console.log('API Response data:', data);
+      console.log('Main API Response data:', data);
 
       if (data.ok) {
-        console.log('Setting patient data:', data.patient);
+        console.log('Setting patient data from main API:', data.patient);
         setPatient(data.patient);
       } else {
         console.log('API returned error:', data.message);

@@ -112,25 +112,35 @@ export default function AppointmentsPage() {
 
         if (!response.ok) {
           console.error('Main API Error:', {
-            status: response.status,
-            statusText: response.statusText,
-            data: data
+            status: response?.status || 'unknown',
+            statusText: response?.statusText || 'unknown',
+            url: response?.url || 'unknown',
+            headers: response?.headers ? Object.fromEntries(response.headers.entries()) : {},
+            data: data || 'no data'
           });
           
           // If main API fails, try simple fallback
           console.log('Falling back to simple appointments API...');
-          throw new Error('Main API failed, attempting fallback');
+          throw new Error(`Main API failed with status ${response?.status || 'unknown'}`);
         }
       } catch (mainApiError) {
-        console.warn('Main appointments API failed, using fallback:', mainApiError);
+        console.warn('Main appointments API failed, using fallback. Error:', 
+          mainApiError instanceof Error ? mainApiError.message : mainApiError);
         
         // Fallback to simple API
-        response = await fetch('/api/appointments-simple');
-        data = await response.json();
-        
-        if (!response.ok) {
-          const errorMessage = data?.error || data?.details || data?.message || 'Failed to load appointments';
-          throw new Error(errorMessage);
+        try {
+          response = await fetch('/api/appointments-simple');
+          data = await response.json();
+          
+          if (!response.ok) {
+            const errorMessage = data?.error || data?.details || data?.message || 'Fallback API also failed';
+            throw new Error(errorMessage);
+          }
+          
+          console.log('Successfully loaded appointments from fallback API');
+        } catch (fallbackError) {
+          console.error('Both main and fallback APIs failed:', fallbackError);
+          throw new Error('Unable to load appointments from any source');
         }
       }
 
