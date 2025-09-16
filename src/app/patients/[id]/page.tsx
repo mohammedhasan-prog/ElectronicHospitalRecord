@@ -293,7 +293,7 @@ export default function PatientDetailPage() {
               <div className="flex-1 min-w-0">
                 <span className="absolute inset-0" aria-hidden="true" />
                 <p className="text-sm font-medium text-gray-900">Clinical Records</p>
-                <p className="text-sm text-gray-500">View vitals, conditions, observations</p>
+                <p className="text-sm text-gray-500">View vitals and allergies</p>
               </div>
             </Link>
 

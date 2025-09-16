@@ -62,8 +62,6 @@ const billingCategories = [
   { value: 'consultation', label: 'Consultation' },
   { value: 'procedure', label: 'Procedure' },
   { value: 'diagnostic', label: 'Diagnostic' },
-  { value: 'laboratory', label: 'Laboratory' },
-  { value: 'medication', label: 'Medication' },
   { value: 'equipment', label: 'Equipment' },
   { value: 'other', label: 'Other' }
 ];

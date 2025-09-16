@@ -45,6 +45,13 @@ export default function Dashboard() {
   });
   const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [currentTime, setCurrentTime] = useState<string>('');
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+    setCurrentTime(new Date().toLocaleTimeString());
+  }, []);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -233,7 +240,9 @@ export default function Dashboard() {
           </div>
           <div className="flex items-center space-x-2 text-sm text-gray-500">
             <ClockIcon className="h-4 w-4" />
-            <span>Last updated: {new Date().toLocaleTimeString()}</span>
+            <span>
+              Last updated: {isMounted ? currentTime : '--:--:--'}
+            </span>
           </div>
         </div>
       </div>

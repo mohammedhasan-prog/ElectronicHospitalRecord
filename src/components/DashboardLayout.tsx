@@ -30,13 +30,8 @@ const navigation = [
   { name: 'Locations', href: '/locations', icon: MapPinIcon },
   { name: 'Appointments', href: '/appointments', icon: CalendarIcon },
   { name: 'Clinical', href: '/clinical', icon: HeartIcon, children: [
-    { name: 'Observations', href: '/clinical/observations' },
-    { name: 'Conditions', href: '/clinical/conditions' },
     { name: 'Allergies', href: '/clinical/allergies' },
-    { name: 'Medications', href: '/clinical/medications' },
-    { name: 'Immunizations', href: '/clinical/immunizations' },
   ]},
-  { name: 'Laboratory', href: '/laboratory', icon: BeakerIcon },
   { name: 'Documents', href: '/documents', icon: DocumentTextIcon },
   { name: 'Billing', href: '/billing', icon: CreditCardIcon },
   { name: 'Reports', href: '/reports', icon: ChartBarIcon },
