@@ -96,11 +96,42 @@ export default function AppointmentsPage() {
       
       params.append('_count', '20');
 
-      const response = await fetch(`/api/appointments?${params.toString()}`);
-      const data = await response.json();
+      let response;
+      let data;
+      
+      try {
+        // Try main FHIR API first
+        response = await fetch(`/api/appointments?${params.toString()}`);
+        
+        try {
+          data = await response.json();
+        } catch (parseError) {
+          console.error('Failed to parse response JSON:', parseError);
+          throw new Error('Server returned invalid response');
+        }
 
-      if (!response.ok) {
-        throw new Error(data.error || data.details || 'Failed to load appointments');
+        if (!response.ok) {
+          console.error('Main API Error:', {
+            status: response.status,
+            statusText: response.statusText,
+            data: data
+          });
+          
+          // If main API fails, try simple fallback
+          console.log('Falling back to simple appointments API...');
+          throw new Error('Main API failed, attempting fallback');
+        }
+      } catch (mainApiError) {
+        console.warn('Main appointments API failed, using fallback:', mainApiError);
+        
+        // Fallback to simple API
+        response = await fetch('/api/appointments-simple');
+        data = await response.json();
+        
+        if (!response.ok) {
+          const errorMessage = data?.error || data?.details || data?.message || 'Failed to load appointments';
+          throw new Error(errorMessage);
+        }
       }
 
       console.log('Appointments response:', data);
